@@ -221,7 +221,7 @@ namespace DebugArtTool.Runtime
             if (_replacementTexDict.Count == 0) return 0;
 
             int n = 0;
-            var images = Object.FindObjectsByType<Image>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var images = UnityEngine.Object.FindObjectsByType<Image>(FindObjectsInactive.Include, FindObjectsSortMode.None);
 
             foreach (var img in images)
             {
