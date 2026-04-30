@@ -259,7 +259,7 @@ namespace DebugArtTool.Runtime
                 if (PreviewTexture != null)
                 {
                     float contentW = 360f - 28f;
-                    CalcPreviewSize(contentW, 300f, out _, out float previewH);
+                    CalcPreviewSize(contentW, 300f, out _, out previewH);
                     ph += previewH + 10f;
                 }
                 ph += 56f; // 按钮
