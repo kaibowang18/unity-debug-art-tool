@@ -10,26 +10,40 @@ namespace DebugArtTool.Runtime
 {
     public class DebugArtTool : MonoBehaviour
     {
+        // =====================================================================
+        // 单例
+        // =====================================================================
         private static DebugArtTool _instance;
         public static DebugArtTool Instance => _instance;
 
+        // =====================================================================
+        // 替换字典：key = 原始名称, value = 替换用 Texture2D
+        // =====================================================================
         private readonly Dictionary<string, Texture2D> _replacementTexDict = new Dictionary<string, Texture2D>();
         private readonly Dictionary<string, Sprite> _spriteCache = new Dictionary<string, Sprite>();
         private readonly List<Texture2D> _tempTextures = new List<Texture2D>();
         private readonly List<string> _blobUrls = new List<string>();
 
+        // =====================================================================
+        // 面板状态
+        // =====================================================================
         private bool _showPanel = false;
         public bool IsActive => _showPanel;
 
+        // 面板窗口 Rect（支持拖拽移动）
         private Rect _windowRect = new Rect(Screen.width - 376f, 16f, 360f, 100f);
-        private const int WINDOW_ID = 91827;
+        private const int WINDOW_ID = 91827; // 唯一窗口 ID，避免和其他 GUI.Window 冲突
 
+        /// <summary>
+        /// 当前面板矩形（TexturePicker 用于判断点击是否在面板内）
+        /// </summary>
         public Rect PanelRect => _windowRect;
 
+        // 当前选中的图片信息（由 TexturePicker 写入）
         [NonSerialized] public string InputSpriteKey = "";
-        [NonSerialized] public Texture2D PreviewTexture = null;
-        [NonSerialized] public Rect PreviewTexCoords = new Rect(0, 0, 1, 1);
-        [NonSerialized] public bool PreviewIsAtlas = false;
+        [NonSerialized] public Texture2D PreviewTexture = null;   // 原图预览纹理
+        [NonSerialized] public Rect PreviewTexCoords = new Rect(0, 0, 1, 1); // Atlas 中的 UV 区域
+        [NonSerialized] public bool PreviewIsAtlas = false;       // 是否需要用 TexCoords 裁剪
 
         private string _statusMessage = "";
 
@@ -41,6 +55,9 @@ namespace DebugArtTool.Runtime
         private GUIStyle _buttonStyle;
         private GUIStyle _statusStyle;
 
+        // =====================================================================
+        // jslib
+        // =====================================================================
 #if UNITY_WEBGL && !UNITY_EDITOR
         [DllImport("__Internal")]
         private static extern void WebGL_OpenFilePicker(string gameObjectName, string spriteKey);
@@ -67,6 +84,9 @@ namespace DebugArtTool.Runtime
             DontDestroyOnLoad(go);
         }
 
+        // =====================================================================
+        // 生命周期
+        // =====================================================================
         private void Awake()
         {
             if (_instance != null && _instance != this) { Destroy(gameObject); return; }
@@ -88,6 +108,9 @@ namespace DebugArtTool.Runtime
             }
         }
 
+        // =====================================================================
+        // GUI 样式初始化
+        // =====================================================================
         private void InitStyles()
         {
             if (_styleInited) return;
@@ -129,38 +152,53 @@ namespace DebugArtTool.Runtime
             _statusStyle.normal.textColor = Color.yellow;
         }
 
+        // =====================================================================
+        // OnGUI — 精简面板：名称 + 预览 + 上传按钮
+        // =====================================================================
         private void OnGUI()
         {
             if (!_showPanel) return;
             InitStyles();
 
+            // 面板宽度固定，高度根据内容动态计算
+            // 动态计算面板高度
             float ph = CalcPanelHeight();
             _windowRect.width = 360f;
             _windowRect.height = ph;
 
+            // 限制面板不超出屏幕
             _windowRect.x = Mathf.Clamp(_windowRect.x, 0, Screen.width - _windowRect.width);
             _windowRect.y = Mathf.Clamp(_windowRect.y, 0, Screen.height - _windowRect.height);
 
+            // GUI.Window 自带标题栏拖拽
             _windowRect = GUI.Window(WINDOW_ID, _windowRect, DrawPanelContent, "美术调试 (F2)", _windowStyle);
         }
 
+        /// <summary>
+        /// 面板内容绘制（由 GUI.Window 回调）
+        /// </summary>
         private void DrawPanelContent(int windowId)
         {
             float contentW = _windowRect.width - 28f; // 减去左右 padding
+            float previewW = 0f, previewH = 0f;
 
             GUILayout.Space(8f);
 
             if (string.IsNullOrEmpty(InputSpriteKey))
             {
+                // 未选中任何图片
                 GUILayout.Label("点击游戏中的图片\n自动吸取名称并预览", _nameLabelStyle);
             }
             else
             {
+                // 图片名称
                 GUILayout.Label(InputSpriteKey, _nameLabelStyle);
                 GUILayout.Space(8f);
 
+                // 预览图
                 if (PreviewTexture != null)
                 {
+                    // 居中
                     float offsetX = (contentW - previewW) * 0.5f;
                     GUILayout.BeginHorizontal();
                     GUILayout.Space(offsetX);
@@ -170,6 +208,7 @@ namespace DebugArtTool.Runtime
 
                     if (PreviewIsAtlas)
                     {
+                        // 从 Atlas 中裁剪绘制
                         GUI.DrawTextureWithTexCoords(previewRect, PreviewTexture, PreviewTexCoords);
                     }
                     else
@@ -181,6 +220,7 @@ namespace DebugArtTool.Runtime
                     GUILayout.Space(10f);
                 }
 
+                // 上传按钮
                 if (GUILayout.Button("上传替换图片", _buttonStyle))
                 {
                     _statusMessage = $"等待选择图片...";
@@ -188,19 +228,25 @@ namespace DebugArtTool.Runtime
                 }
             }
 
+            // 状态信息
             if (!string.IsNullOrEmpty(_statusMessage))
             {
                 GUILayout.Space(4f);
                 GUILayout.Label(_statusMessage, _statusStyle);
             }
 
+            // 让整个标题栏区域可拖拽（标题栏高度约 20px）
             GUI.DragWindow(new Rect(0, 0, _windowRect.width, 24f));
         }
 
+        /// <summary>
+        /// 预计算面板高度
+        /// </summary>
         private float CalcPanelHeight()
         {
-            float ph = 28f;
-            ph += 8f;
+            float previewW = 0f, previewH = 0f;
+            float ph = 28f; // window title
+            ph += 8f;       // top space
 
             if (string.IsNullOrEmpty(InputSpriteKey))
             {
@@ -208,7 +254,7 @@ namespace DebugArtTool.Runtime
             }
             else
             {
-                ph += 32f;
+                ph += 32f; // 名称
                 ph += 8f;
                 if (PreviewTexture != null)
                 {
@@ -216,14 +262,18 @@ namespace DebugArtTool.Runtime
                     CalcPreviewSize(contentW, 300f, out _, out float previewH);
                     ph += previewH + 10f;
                 }
-                ph += 56f;
+                ph += 56f; // 按钮
             }
 
             if (!string.IsNullOrEmpty(_statusMessage)) ph += 30f;
-            ph += 16f;
+            ph += 16f; // bottom padding
             return ph;
         }
 
+
+        /// <summary>
+        /// 计算预览图在面板中的显示尺寸（保持宽高比，不超过 maxW × maxH）
+        /// </summary>
         private void CalcPreviewSize(float maxW, float maxH, out float w, out float h)
         {
             float srcW, srcH;
@@ -240,13 +290,17 @@ namespace DebugArtTool.Runtime
 
             if (srcW <= 0 || srcH <= 0) { w = maxW; h = maxH; return; }
 
-            float scale = Mathf.Min(maxW / srcW, maxH / srcH, 1f);
+            float scale = Mathf.Min(maxW / srcW, maxH / srcH, 1f); // 不放大
             w = srcW * scale;
             h = srcH * scale;
 
+            // 至少 60px 可见
             if (w < 60f) { w = 60f; h = w * (srcH / srcW); }
         }
 
+        // =====================================================================
+        // JS 回调
+        // =====================================================================
         public void OnImageSelected(string message)
         {
             int sep = message.IndexOf('|');
@@ -258,6 +312,9 @@ namespace DebugArtTool.Runtime
             StartCoroutine(DownloadAndApply(spriteKey, blobUrl));
         }
 
+        // =====================================================================
+        // 下载 & 替换
+        // =====================================================================
         private IEnumerator DownloadAndApply(string spriteKey, string blobUrl)
         {
             using (UnityWebRequest request = UnityWebRequestTexture.GetTexture(blobUrl, false))
