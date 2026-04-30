@@ -1,3 +1,11 @@
+// ============================================================================
+// DebugArtTool.cs
+// 运行时美术图片替换调试工具 —— 核心管理器
+//
+// F2 打开/关闭。面板显示：图片名称 + 原图预览 + 上传按钮。
+// 点击游戏中图片自动吸取名称和预览，点上传按钮选图替换。
+// ============================================================================
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -74,16 +82,6 @@ namespace DebugArtTool.Runtime
         }
 #endif
 
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-        private static void AutoInit()
-        {
-            if (_instance != null) return;
-            GameObject go = new GameObject("DebugArtTool");
-            go.AddComponent<DebugArtTool>();
-            go.AddComponent<TexturePicker>();
-            DontDestroyOnLoad(go);
-        }
-
         // =====================================================================
         // 生命周期
         // =====================================================================
@@ -153,14 +151,13 @@ namespace DebugArtTool.Runtime
         }
 
         // =====================================================================
-        // OnGUI — 精简面板：名称 + 预览 + 上传按钮
+        // OnGUI — 使用 GUI.Window 实现可拖拽面板
         // =====================================================================
         private void OnGUI()
         {
             if (!_showPanel) return;
             InitStyles();
 
-            // 面板宽度固定，高度根据内容动态计算
             // 动态计算面板高度
             float ph = CalcPanelHeight();
             _windowRect.width = 360f;
@@ -180,13 +177,11 @@ namespace DebugArtTool.Runtime
         private void DrawPanelContent(int windowId)
         {
             float contentW = _windowRect.width - 28f; // 减去左右 padding
-            float previewW = 0f, previewH = 0f;
 
             GUILayout.Space(8f);
 
             if (string.IsNullOrEmpty(InputSpriteKey))
             {
-                // 未选中任何图片
                 GUILayout.Label("点击游戏中的图片\n自动吸取名称并预览", _nameLabelStyle);
             }
             else
@@ -198,7 +193,9 @@ namespace DebugArtTool.Runtime
                 // 预览图
                 if (PreviewTexture != null)
                 {
-                    // 居中
+                    float previewW, previewH;
+                    CalcPreviewSize(contentW, 300f, out previewW, out previewH);
+
                     float offsetX = (contentW - previewW) * 0.5f;
                     GUILayout.BeginHorizontal();
                     GUILayout.Space(offsetX);
@@ -208,7 +205,6 @@ namespace DebugArtTool.Runtime
 
                     if (PreviewIsAtlas)
                     {
-                        // 从 Atlas 中裁剪绘制
                         GUI.DrawTextureWithTexCoords(previewRect, PreviewTexture, PreviewTexCoords);
                     }
                     else
@@ -223,7 +219,7 @@ namespace DebugArtTool.Runtime
                 // 上传按钮
                 if (GUILayout.Button("上传替换图片", _buttonStyle))
                 {
-                    _statusMessage = $"等待选择图片...";
+                    _statusMessage = "等待选择图片...";
                     WebGL_OpenFilePicker(gameObject.name, InputSpriteKey);
                 }
             }
@@ -244,7 +240,6 @@ namespace DebugArtTool.Runtime
         /// </summary>
         private float CalcPanelHeight()
         {
-            float previewW = 0f, previewH = 0f;
             float ph = 28f; // window title
             ph += 8f;       // top space
 
@@ -259,7 +254,7 @@ namespace DebugArtTool.Runtime
                 if (PreviewTexture != null)
                 {
                     float contentW = 360f - 28f;
-                    CalcPreviewSize(contentW, 300f, out _, out previewH);
+                    CalcPreviewSize(contentW, 300f, out _, out float previewH);
                     ph += previewH + 10f;
                 }
                 ph += 56f; // 按钮
@@ -269,7 +264,6 @@ namespace DebugArtTool.Runtime
             ph += 16f; // bottom padding
             return ph;
         }
-
 
         /// <summary>
         /// 计算预览图在面板中的显示尺寸（保持宽高比，不超过 maxW × maxH）
@@ -321,7 +315,11 @@ namespace DebugArtTool.Runtime
             {
                 yield return request.SendWebRequest();
 
+#if UNITY_2020_1_OR_NEWER
                 if (request.result != UnityWebRequest.Result.Success)
+#else
+                if (request.isNetworkError || request.isHttpError)
+#endif
                 {
                     _statusMessage = $"下载失败: {request.error}";
                     yield break;
@@ -351,20 +349,60 @@ namespace DebugArtTool.Runtime
             }
         }
 
+        // =====================================================================
+        // 暴力扫描替换（保留 border / imageType）
+        // =====================================================================
         public int ScanAndReplaceAll()
         {
             if (_replacementTexDict.Count == 0) return 0;
-
             int n = 0;
-            var images = UnityEngine.Object.FindObjectsByType<Image>(FindObjectsInactive.Include, FindObjectsSortMode.None);
 
-            foreach (var img in images)
+            Image[] allImages = Resources.FindObjectsOfTypeAll<Image>();
+            foreach (Image img in allImages)
             {
-                if (img == null || img.sprite == null) continue;
-
-                if (_replacementTexDict.TryGetValue(img.sprite.name, out Texture2D newTex) && img.sprite.texture != newTex)
+                if (img == null || img.sprite == null || IsEditorObject(img.hideFlags)) continue;
+                if (_replacementTexDict.TryGetValue(img.sprite.name, out Texture2D newTex))
                 {
+                    if (img.sprite.texture == newTex) continue;
                     img.sprite = GetOrCreateSprite(img.sprite.name, newTex, img.sprite);
+                    n++;
+                }
+            }
+
+            RawImage[] allRawImages = Resources.FindObjectsOfTypeAll<RawImage>();
+            foreach (RawImage ri in allRawImages)
+            {
+                if (ri == null || ri.texture == null || IsEditorObject(ri.hideFlags)) continue;
+                if (_replacementTexDict.TryGetValue(ri.texture.name, out Texture2D newTex))
+                {
+                    if (ri.texture == newTex) continue;
+                    ri.texture = newTex;
+                    n++;
+                }
+            }
+
+            SpriteRenderer[] allSR = Resources.FindObjectsOfTypeAll<SpriteRenderer>();
+            foreach (SpriteRenderer sr in allSR)
+            {
+                if (sr == null || sr.sprite == null || IsEditorObject(sr.hideFlags)) continue;
+                if (_replacementTexDict.TryGetValue(sr.sprite.name, out Texture2D newTex))
+                {
+                    if (sr.sprite.texture == newTex) continue;
+                    sr.sprite = GetOrCreateSprite(sr.sprite.name, newTex, sr.sprite);
+                    n++;
+                }
+            }
+
+            MeshRenderer[] allMR = Resources.FindObjectsOfTypeAll<MeshRenderer>();
+            foreach (MeshRenderer mr in allMR)
+            {
+                if (mr == null || IsEditorObject(mr.hideFlags)) continue;
+                Material mat = mr.sharedMaterial;
+                if (mat != null && mat.mainTexture != null &&
+                    _replacementTexDict.TryGetValue(mat.mainTexture.name, out Texture2D newTex))
+                {
+                    if (mat.mainTexture == newTex) continue;
+                    mr.material.mainTexture = newTex;
                     n++;
                 }
             }
@@ -372,6 +410,9 @@ namespace DebugArtTool.Runtime
             return n;
         }
 
+        // =====================================================================
+        // Sprite 创建（保留 border）
+        // =====================================================================
         private Sprite GetOrCreateSprite(string spriteKey, Texture2D newTex, Sprite original)
         {
             Vector4 border = original.border;
@@ -416,6 +457,50 @@ namespace DebugArtTool.Runtime
             return f == HideFlags.NotEditable || f == HideFlags.HideAndDontSave;
         }
 
+        // =====================================================================
+        // 拦截器接口
+        // =====================================================================
+        public bool TryGetReplacement(string spriteKey, Sprite originalSprite, out Sprite replacement)
+        {
+            if (_replacementTexDict.TryGetValue(spriteKey, out Texture2D newTex))
+            {
+                replacement = GetOrCreateSprite(spriteKey, newTex, originalSprite);
+                return true;
+            }
+            replacement = null;
+            return false;
+        }
+
+        public bool TryGetReplacementTexture(string spriteKey, out Texture2D replacement)
+        {
+            return _replacementTexDict.TryGetValue(spriteKey, out replacement);
+        }
+
+        public void RegisterReplacement(string spriteKey, Texture2D texture)
+        {
+            if (_replacementTexDict.TryGetValue(spriteKey, out Texture2D oldTex))
+            {
+                ClearSpriteCacheForKey(spriteKey);
+                _tempTextures.Remove(oldTex);
+                Destroy(oldTex);
+            }
+            _replacementTexDict[spriteKey] = texture;
+        }
+
+        public void RemoveReplacement(string spriteKey)
+        {
+            ClearSpriteCacheForKey(spriteKey);
+            if (_replacementTexDict.TryGetValue(spriteKey, out Texture2D oldTex))
+            {
+                _tempTextures.Remove(oldTex);
+                Destroy(oldTex);
+                _replacementTexDict.Remove(spriteKey);
+            }
+        }
+
+        // =====================================================================
+        // 内存管理
+        // =====================================================================
         private void CleanupAllTemporaryAssets()
         {
             foreach (var kvp in _spriteCache)
