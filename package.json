@@ -1,6 +1,6 @@
 {
   "name": "com.kb.debug-art-tool",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "displayName": "Debug Art Tool",
   "description": "Unity_WebGL运行时美术图片替换调试工具",
   "unity": "2022.3",

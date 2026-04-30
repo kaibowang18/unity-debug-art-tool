@@ -7,8 +7,6 @@ namespace DebugArtTool.Runtime
 {
     public class TexturePicker : MonoBehaviour
     {
-        private GraphicRaycaster[] _raycasters;
-
         private void Update()
         {
             if (DebugArtTool.Instance == null || !DebugArtTool.Instance.IsActive) return;
@@ -35,34 +33,38 @@ namespace DebugArtTool.Runtime
             if (EventSystem.current == null) return;
 
             var pointerData = new PointerEventData(EventSystem.current) { position = screenPos };
-            
-            // 缓存Raycaster，如果数量有变才重新获取
-            if (_raycasters == null || _raycasters.Length == 0)
-                _raycasters = FindObjectsOfType<GraphicRaycaster>();
+
+            // 每次都重新获取所有 GraphicRaycaster，确保新打开的弹窗/Canvas 也能被检测到
+            var raycasters = FindObjectsOfType<GraphicRaycaster>();
 
             var results = new List<RaycastResult>();
+            var allHits = new List<RaycastResult>();
 
-            foreach (var rc in _raycasters)
+            foreach (var rc in raycasters)
             {
                 if (rc == null) continue;
                 results.Clear();
                 rc.Raycast(pointerData, results);
+                allHits.AddRange(results);
+            }
 
-                foreach (var r in results)
+            // 按 depth / sortingOrder 排序，优先取最上层的结果
+            allHits.Sort((a, b) => b.depth.CompareTo(a.depth));
+
+            foreach (var r in allHits)
+            {
+                var img = r.gameObject.GetComponent<Image>();
+                if (img != null && img.sprite != null)
                 {
-                    var img = r.gameObject.GetComponent<Image>();
-                    if (img != null && img.sprite != null)
-                    {
-                        SetPickedSprite(img.sprite);
-                        return;
-                    }
+                    SetPickedSprite(img.sprite);
+                    return;
+                }
 
-                    var rawImg = r.gameObject.GetComponent<RawImage>();
-                    if (rawImg != null && rawImg.texture != null)
-                    {
-                        SetPickedTexture(rawImg.texture.name, rawImg.texture as Texture2D);
-                        return;
-                    }
+                var rawImg = r.gameObject.GetComponent<RawImage>();
+                if (rawImg != null && rawImg.texture != null)
+                {
+                    SetPickedTexture(rawImg.texture.name, rawImg.texture as Texture2D);
+                    return;
                 }
             }
         }
