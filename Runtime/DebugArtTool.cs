@@ -15,13 +15,14 @@ namespace DebugArtTool.Runtime
 
         private readonly Dictionary<string, Texture2D> _replacementTexDict = new Dictionary<string, Texture2D>();
         private readonly Dictionary<string, Sprite> _spriteCache = new Dictionary<string, Sprite>();
+        private readonly List<Texture2D> _tempTextures = new List<Texture2D>();
         private readonly List<string> _blobUrls = new List<string>();
 
         private bool _showPanel = false;
         public bool IsActive => _showPanel;
 
         private Rect _windowRect = new Rect(Screen.width - 376f, 16f, 360f, 100f);
-        private const int WINDOW_ID = 89757;
+        private const int WINDOW_ID = 91827;
 
         public Rect PanelRect => _windowRect;
 
@@ -31,15 +32,29 @@ namespace DebugArtTool.Runtime
         [NonSerialized] public bool PreviewIsAtlas = false;
 
         private string _statusMessage = "";
+
+        // GUI 样式
         private bool _styleInited = false;
-        private GUIStyle _windowStyle, _labelStyle, _nameLabelStyle, _buttonStyle, _statusStyle;
+        private GUIStyle _windowStyle;
+        private GUIStyle _labelStyle;
+        private GUIStyle _nameLabelStyle;
+        private GUIStyle _buttonStyle;
+        private GUIStyle _statusStyle;
 
 #if UNITY_WEBGL && !UNITY_EDITOR
-        [DllImport("__Internal")] private static extern void WebGL_OpenFilePicker(string goName, string spriteKey);
-        [DllImport("__Internal")] private static extern void WebGL_RevokeBlobUrl(string blobUrl);
+        [DllImport("__Internal")]
+        private static extern void WebGL_OpenFilePicker(string gameObjectName, string spriteKey);
+        [DllImport("__Internal")]
+        private static extern void WebGL_RevokeBlobUrl(string blobUrl);
 #else
-        private static void WebGL_OpenFilePicker(string goName, string spriteKey) => Debug.Log($"WebGL_OpenFilePicker: {spriteKey}");
-        private static void WebGL_RevokeBlobUrl(string blobUrl) => Debug.Log($"WebGL_RevokeBlobUrl: {blobUrl}");
+        private static void WebGL_OpenFilePicker(string gameObjectName, string spriteKey)
+        {
+            Debug.Log($"[DebugArtTool] WebGL_OpenFilePicker 仅在 WebGL 平台生效. key={spriteKey}");
+        }
+        private static void WebGL_RevokeBlobUrl(string blobUrl)
+        {
+            Debug.Log($"[DebugArtTool] WebGL_RevokeBlobUrl 仅在 WebGL 平台生效. url={blobUrl}");
+        }
 #endif
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -67,7 +82,10 @@ namespace DebugArtTool.Runtime
 
         private void Update()
         {
-            if (Input.GetKeyDown(KeyCode.F2)) _showPanel = !_showPanel;
+            if (Input.GetKeyDown(KeyCode.F2))
+            {
+                _showPanel = !_showPanel;
+            }
         }
 
         private void InitStyles()
@@ -75,11 +93,39 @@ namespace DebugArtTool.Runtime
             if (_styleInited) return;
             _styleInited = true;
 
-            _windowStyle = new GUIStyle(GUI.skin.window) { fontSize = 20, fontStyle = FontStyle.Bold, padding = new RectOffset(14, 14, 28, 10) };
-            _labelStyle = new GUIStyle(GUI.skin.label) { fontSize = 16, wordWrap = true };
-            _nameLabelStyle = new GUIStyle(GUI.skin.label) { fontSize = 22, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, wordWrap = true };
-            _buttonStyle = new GUIStyle(GUI.skin.button) { fontSize = 20, fixedHeight = 48f };
-            _statusStyle = new GUIStyle(GUI.skin.label) { fontSize = 15, wordWrap = true, fontStyle = FontStyle.Italic };
+            _windowStyle = new GUIStyle(GUI.skin.window)
+            {
+                fontSize = 20,
+                fontStyle = FontStyle.Bold,
+                padding = new RectOffset(14, 14, 28, 10)
+            };
+
+            _labelStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 16,
+                wordWrap = true
+            };
+
+            _nameLabelStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 22,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                wordWrap = true
+            };
+
+            _buttonStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = 20,
+                fixedHeight = 48f
+            };
+
+            _statusStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 15,
+                wordWrap = true,
+                fontStyle = FontStyle.Italic
+            };
             _statusStyle.normal.textColor = Color.yellow;
         }
 
@@ -88,8 +134,10 @@ namespace DebugArtTool.Runtime
             if (!_showPanel) return;
             InitStyles();
 
+            float ph = CalcPanelHeight();
             _windowRect.width = 360f;
-            _windowRect.height = CalcPanelHeight();
+            _windowRect.height = ph;
+
             _windowRect.x = Mathf.Clamp(_windowRect.x, 0, Screen.width - _windowRect.width);
             _windowRect.y = Mathf.Clamp(_windowRect.y, 0, Screen.height - _windowRect.height);
 
@@ -98,7 +146,8 @@ namespace DebugArtTool.Runtime
 
         private void DrawPanelContent(int windowId)
         {
-            float contentW = _windowRect.width - 28f;
+            float contentW = _windowRect.width - 28f; // 减去左右 padding
+
             GUILayout.Space(8f);
 
             if (string.IsNullOrEmpty(InputSpriteKey))
@@ -112,15 +161,21 @@ namespace DebugArtTool.Runtime
 
                 if (PreviewTexture != null)
                 {
-                    CalcPreviewSize(contentW, 300f, out float previewW, out float previewH);
                     float offsetX = (contentW - previewW) * 0.5f;
-
                     GUILayout.BeginHorizontal();
                     GUILayout.Space(offsetX);
-                    Rect previewRect = GUILayoutUtility.GetRect(previewW, previewH, GUILayout.Width(previewW), GUILayout.Height(previewH));
 
-                    if (PreviewIsAtlas) GUI.DrawTextureWithTexCoords(previewRect, PreviewTexture, PreviewTexCoords);
-                    else GUI.DrawTexture(previewRect, PreviewTexture, ScaleMode.ScaleToFit);
+                    Rect previewRect = GUILayoutUtility.GetRect(previewW, previewH,
+                        GUILayout.Width(previewW), GUILayout.Height(previewH));
+
+                    if (PreviewIsAtlas)
+                    {
+                        GUI.DrawTextureWithTexCoords(previewRect, PreviewTexture, PreviewTexCoords);
+                    }
+                    else
+                    {
+                        GUI.DrawTexture(previewRect, PreviewTexture, ScaleMode.ScaleToFit);
+                    }
 
                     GUILayout.EndHorizontal();
                     GUILayout.Space(10f);
@@ -128,7 +183,7 @@ namespace DebugArtTool.Runtime
 
                 if (GUILayout.Button("上传替换图片", _buttonStyle))
                 {
-                    _statusMessage = "等待选择图片...";
+                    _statusMessage = $"等待选择图片...";
                     WebGL_OpenFilePicker(gameObject.name, InputSpriteKey);
                 }
             }
@@ -144,40 +199,62 @@ namespace DebugArtTool.Runtime
 
         private float CalcPanelHeight()
         {
-            float ph = 36f;
-            if (string.IsNullOrEmpty(InputSpriteKey)) return ph + 60f + (!string.IsNullOrEmpty(_statusMessage) ? 30f : 0);
+            float ph = 28f;
+            ph += 8f;
 
-            ph += 40f;
-            if (PreviewTexture != null)
+            if (string.IsNullOrEmpty(InputSpriteKey))
             {
-                CalcPreviewSize(360f - 28f, 300f, out _, out float previewH);
-                ph += previewH + 10f;
+                ph += 60f;
             }
-            ph += 56f;
+            else
+            {
+                ph += 32f;
+                ph += 8f;
+                if (PreviewTexture != null)
+                {
+                    float contentW = 360f - 28f;
+                    CalcPreviewSize(contentW, 300f, out _, out float previewH);
+                    ph += previewH + 10f;
+                }
+                ph += 56f;
+            }
+
             if (!string.IsNullOrEmpty(_statusMessage)) ph += 30f;
-            return ph + 16f;
+            ph += 16f;
+            return ph;
         }
 
         private void CalcPreviewSize(float maxW, float maxH, out float w, out float h)
         {
-            float srcW = PreviewIsAtlas ? PreviewTexture.width * PreviewTexCoords.width : PreviewTexture.width;
-            float srcH = PreviewIsAtlas ? PreviewTexture.height * PreviewTexCoords.height : PreviewTexture.height;
+            float srcW, srcH;
+            if (PreviewIsAtlas)
+            {
+                srcW = PreviewTexture.width * PreviewTexCoords.width;
+                srcH = PreviewTexture.height * PreviewTexCoords.height;
+            }
+            else
+            {
+                srcW = PreviewTexture.width;
+                srcH = PreviewTexture.height;
+            }
 
             if (srcW <= 0 || srcH <= 0) { w = maxW; h = maxH; return; }
 
             float scale = Mathf.Min(maxW / srcW, maxH / srcH, 1f);
-            w = Mathf.Max(srcW * scale, 60f);
-            h = w * (srcH / srcW);
+            w = srcW * scale;
+            h = srcH * scale;
+
+            if (w < 60f) { w = 60f; h = w * (srcH / srcW); }
         }
 
         public void OnImageSelected(string message)
         {
             int sep = message.IndexOf('|');
-            if (sep < 0) return;
+            if (sep < 0) { Debug.LogError("[DebugArtTool] 无效消息: " + message); return; }
 
             string spriteKey = message.Substring(0, sep);
             string blobUrl = message.Substring(sep + 1);
-            _statusMessage = "下载中...";
+            _statusMessage = $"下载中...";
             StartCoroutine(DownloadAndApply(spriteKey, blobUrl));
         }
 
@@ -187,7 +264,6 @@ namespace DebugArtTool.Runtime
             {
                 yield return request.SendWebRequest();
 
-                // 2022.3 原生 API 判断
                 if (request.result != UnityWebRequest.Result.Success)
                 {
                     _statusMessage = $"下载失败: {request.error}";
@@ -203,10 +279,12 @@ namespace DebugArtTool.Runtime
                 if (_replacementTexDict.TryGetValue(spriteKey, out Texture2D oldTex))
                 {
                     ClearSpriteCacheForKey(spriteKey);
+                    _tempTextures.Remove(oldTex);
                     Destroy(oldTex);
                 }
 
                 _replacementTexDict[spriteKey] = downloadedTex;
+                _tempTextures.Add(downloadedTex);
 
                 _blobUrls.Add(blobUrl);
                 WebGL_RevokeBlobUrl(blobUrl);
@@ -245,13 +323,17 @@ namespace DebugArtTool.Runtime
                 oRect.width > 0 ? original.pivot.x / oRect.width : 0.5f,
                 oRect.height > 0 ? original.pivot.y / oRect.height : 0.5f
             );
+            float ppu = original.pixelsPerUnit;
 
             string cacheKey = $"{spriteKey}|{border.x},{border.y},{border.z},{border.w}";
-            if (_spriteCache.TryGetValue(cacheKey, out Sprite cached) && cached != null && cached.texture == newTex) return cached;
+            if (_spriteCache.TryGetValue(cacheKey, out Sprite cached) && cached != null && cached.texture == newTex)
+                return cached;
 
             if (cached != null) Destroy(cached);
 
-            Sprite sp = Sprite.Create(newTex, new Rect(0, 0, newTex.width, newTex.height), normPivot, original.pixelsPerUnit, 0, SpriteMeshType.FullRect, border);
+            Sprite sp = Sprite.Create(newTex,
+                new Rect(0, 0, newTex.width, newTex.height),
+                normPivot, ppu, 0, SpriteMeshType.FullRect, border);
             sp.name = spriteKey;
             _spriteCache[cacheKey] = sp;
             return sp;
@@ -272,11 +354,20 @@ namespace DebugArtTool.Runtime
             foreach (string k in toRemove) _spriteCache.Remove(k);
         }
 
+        private static bool IsEditorObject(HideFlags f)
+        {
+            return f == HideFlags.NotEditable || f == HideFlags.HideAndDontSave;
+        }
+
         private void CleanupAllTemporaryAssets()
         {
-            foreach (var kvp in _spriteCache) if (kvp.Value != null) Destroy(kvp.Value);
+            foreach (var kvp in _spriteCache)
+                if (kvp.Value != null) Destroy(kvp.Value);
             _spriteCache.Clear();
             _replacementTexDict.Clear();
+            foreach (var tex in _tempTextures)
+                if (tex != null) Destroy(tex);
+            _tempTextures.Clear();
             foreach (string url in _blobUrls) WebGL_RevokeBlobUrl(url);
             _blobUrls.Clear();
         }
