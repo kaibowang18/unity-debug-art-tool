@@ -33,8 +33,6 @@ namespace DebugArtTool.Runtime
             if (EventSystem.current == null) return;
 
             var pointerData = new PointerEventData(EventSystem.current) { position = screenPos };
-
-            // 每次都重新获取所有 GraphicRaycaster，确保新打开的弹窗/Canvas 也能被检测到
             var raycasters = FindObjectsOfType<GraphicRaycaster>();
 
             var results = new List<RaycastResult>();
@@ -48,7 +46,6 @@ namespace DebugArtTool.Runtime
                 allHits.AddRange(results);
             }
 
-            // 按 depth / sortingOrder 排序，优先取最上层的结果
             allHits.Sort((a, b) => b.depth.CompareTo(a.depth));
 
             foreach (var r in allHits)
