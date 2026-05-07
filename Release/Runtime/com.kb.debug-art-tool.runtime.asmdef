@@ -1,12 +1,13 @@
-{
+﻿{
   "name": "DebugArtTool.Runtime",
-  "rootNamespace": "DebugArtTool.Runtime",
   "references": [],
   "includePlatforms": [],
   "excludePlatforms": [],
   "allowUnsafeCode": false,
-  "overrideReferences": false,
-  "precompiledReferences": [],
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "DebugArtTool.Runtime.dll"
+  ],
   "autoReferenced": true,
   "defineConstraints": [],
   "versionDefines": [],
